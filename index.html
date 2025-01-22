@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RepoGPT</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+<div id="root" class="root-container"></div>
+
+<!-- React and ReactDOM -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<!-- Babel standalone to compile JSX at runtime -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+
+const { useState, useCallback, useRef } = React;
+
+// Cache structure to store repository files
+const useFileCache = () => {
+  const cache = useRef(new Map());
+
+  const getCachedFiles = (repoUrl) => cache.current.get(repoUrl);
+  const setCachedFiles = (repoUrl, files) => cache.current.set(repoUrl, files);
+  const clearCache = () => cache.current.clear();
+
+  return { getCachedFiles, setCachedFiles, clearCache };
+};
+
+function App() {
+  const [userInput, setUserInput] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [files, setFiles] = useState([]);
+  const [githubToken, setGithubToken] = useState("");
+  const [githubFiles, setGithubFiles] = useState([]);
+  const [response, setResponse] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const { getCachedFiles, setCachedFiles } = useFileCache();
+
+  const OPENAI_API_KEY = "YOUR_OPENAI_KEY_HERE";
+  const acceptedExtensions = [".ts", ".js", ".jsx", ".py", ".tsx"];
+
+  const handleFileChange = (e) => {
+    const chosenFiles = Array.from(e.target.files);
+    setFiles(chosenFiles);
+  };
+
+  const readFileAsText = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsText(file);
+    });
+  };
+
+  const callOpenAI = async (model, messages) => {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.7 })
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    return data;
+  };
+
+  const parseGithubUrl = (url) => {
+    try {
+      const u = new URL(url);
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts.length < 2) throw new Error("Invalid GitHub URL");
+      return { owner: parts[0], repo: parts[1] };
+    } catch (err) {
+      throw new Error("Invalid GitHub URL");
+    }
+  };
+
+  const fetchWithAuth = useCallback(async (url) => {
+    const res = await fetch(url, {
+      headers: githubToken ? {
+        Authorization: `token ${githubToken}`,
+        Accept: 'application/vnd.github.v3.raw'
+      } : {}
+    });
+    if (!res.ok) throw new Error(`Failed to fetch: ${url} (${res.statusText})`);
+    return res;
+  }, [githubToken]);
+
+  const fetchRepoDefaultBranch = useCallback(async (owner, repo) => {
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
+    const res = await fetchWithAuth(apiUrl);
+    const data = await res.json();
+    return data.default_branch || "main";
+  }, [fetchWithAuth]);
+
+  const fetchGithubContents = useCallback(async (owner, repo, path = "") => {
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    const res = await fetchWithAuth(apiUrl);
+    return res.json();
+  }, [fetchWithAuth]);
+
+  // Fetch file content directly from GitHub API
+  const fetchFileContent = useCallback(async (owner, repo, path) => {
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    const res = await fetchWithAuth(apiUrl);
+    return res.text();
+  }, [fetchWithAuth]);
+
+  // Parallel file fetching with batching to avoid rate limits
+  const fetchFilesInBatches = useCallback(async (owner, repo, files, batchSize = 5) => {
+    const results = [];
+    for (let i = 0; i < files.length; i += batchSize) {
+      const batch = files.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (file) => {
+        try {
+          const content = await fetchFileContent(owner, repo, file.path);
+          return { path: file.path, content };
+        } catch (error) {
+          console.error(`Error fetching ${file.path}:`, error);
+          return null;
+        }
+      });
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults.filter(Boolean));
+    }
+    return results;
+  }, [fetchFileContent]);
+
+  const gatherGithubFiles = useCallback(async (owner, repo, path = "") => {
+    const data = await fetchGithubContents(owner, repo, path);
+    const results = [];
+    const dirPromises = [];
+
+    // Process files and directories in parallel
+    for (const item of data) {
+      if (item.type === "file") {
+        const lowerName = item.name.toLowerCase();
+        if (acceptedExtensions.some(ext => lowerName.endsWith(ext))) {
+          results.push({ path: item.path });
+        }
+      } else if (item.type === "dir") {
+        dirPromises.push(gatherGithubFiles(owner, repo, item.path));
+      }
+    }
+
+    const subDirResults = await Promise.all(dirPromises);
+    return results.concat(subDirResults.flat());
+  }, [fetchGithubContents]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMsg("");
+    setResponse("");
+    setGithubFiles([]);
+
+    try {
+      let ghFiles = [];
+      let owner, repo;
+
+      // Check cache first if repo URL is provided
+      if (repoUrl.trim()) {
+        const cachedFiles = getCachedFiles(repoUrl.trim());
+        ({ owner, repo } = parseGithubUrl(repoUrl.trim()));
+
+        if (cachedFiles) {
+          ghFiles = cachedFiles;
+          console.log("Using cached files");
+        } else {
+          ghFiles = await gatherGithubFiles(owner, repo);
+          setCachedFiles(repoUrl.trim(), ghFiles);
+          console.log("Cached new files");
+        }
+        setGithubFiles(ghFiles);
+      }
+
+      const localFileNames = files.map(file => file.name);
+      const githubFileNames = ghFiles.map(file => file.path);
+      const fileTreeArray = [...localFileNames, ...githubFileNames];
+      const fileTreeString = fileTreeArray.join("\n");
+
+      // File selection with GPT
+      const selectionPrompt = `based on the following file tree, please select the files relevant to answering the user's query. <user_query>${userInput}</user_query> .... <file_tree>\n${fileTreeString}\n</file_tree>\nplease output as comma separated list`;
+
+      const selectionData = await callOpenAI("gpt-4o-mini", [
+        {role: "system", content: "You are a helpful assistant that selects relevant files."},
+        {role: "user", content: selectionPrompt}
+      ]);
+
+      const selectedFilesStr = selectionData.choices?.[0]?.message?.content?.trim() || "";
+      if (!selectedFilesStr) throw new Error("No file selection response.");
+
+      const selectedFiles = selectedFilesStr.split(",").map(f => f.trim()).filter(Boolean);
+      const selectedLocalFiles = files.filter(file => selectedFiles.includes(file.name));
+      const selectedGithubFiles = ghFiles.filter(gf => selectedFiles.includes(gf.path));
+
+      // Parallel file content fetching
+      const [localContents, githubContents] = await Promise.all([
+        Promise.all(selectedLocalFiles.map(async file => ({
+          name: file.name,
+          content: await readFileAsText(file)
+        }))),
+        owner && repo ? fetchFilesInBatches(owner, repo, selectedGithubFiles) : []
+      ]);
+
+      // Build final payload
+      const fileContentsString = [
+        ...localContents.map(f => `\n<${f.name}>\n${f.content}\n</${f.name}>\n`),
+        ...githubContents.map(f => `\n<${f.path}>\n${f.content}\n</${f.path}>\n`)
+      ].join("");
+
+      const fullPayload = userInput +
+        (repoUrl.trim() ? `\nRepo URL: ${repoUrl}\n` : "") +
+        fileContentsString;
+
+      // Final GPT call
+      const finalData = await callOpenAI("gpt-4o", [
+        {role: "system", content: "You are RepoGPT. Given a user prompt and included repository code, provide helpful output."},
+        {role: "user", content: fullPayload}
+      ]);
+
+      setResponse(finalData.choices?.[0]?.message?.content || "No response from the model.");
+
+    } catch (error) {
+      console.error(error);
+      setErrorMsg(error.message || "An error occurred");
+    }
+
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="app-container">
+      <h1 className="app-title">RepoGPT</h1>
+      <p className="app-subtitle">
+        Ask questions about a whole repo or large set of files. Upload as much as you want,
+        RepoGPT will read only the relevant files.
+      </p>
+      <form onSubmit={handleSubmit} className="form-container">
+        <label className="form-label">Your Query:</label>
+        <textarea
+          value={userInput}
+          onChange={(e) => setUserInput(e.target.value)}
+          rows={5}
+          className="input-textarea"
+        />
+        <label className="form-label">Upload Context from Github:</label>
+        <input
+          type="text"
+          value={repoUrl}
+          onChange={(e) => setRepoUrl(e.target.value)}
+          className="input-text"
+          placeholder="https://github.com/owner/repo"
+        />
+        <label className="form-label">
+          If the repo is private, enter a Github personal access token:
+        </label>
+        <input
+          type="text"
+          value={githubToken}
+          onChange={(e) => setGithubToken(e.target.value)}
+          className="input-text"
+          placeholder="ghp_zHyv02f3...."
+        />
+        <label className="form-label">Upload Context From Files:</label>
+        <input
+          type="file"
+          multiple
+          onChange={handleFileChange}
+          className="input-file"
+        />
+        <button type="submit" className="submit-button" disabled={isLoading}>
+          Submit
+        </button>
+      </form>
+
+      {errorMsg && <div className="error-msg">{errorMsg}</div>}
+
+      {isLoading && (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <span>Thinking...</span>
+        </div>
+      )}
+
+      {response && (
+        <div className="openai-response-container">
+          <h2 className="section-title">OpenAI Response:</h2>
+          <pre className="code-block">{response}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
