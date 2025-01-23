@@ -1,3 +1,4 @@
+/* Global Styles */
 html, body {
   margin: 0;
   padding: 0;
@@ -14,6 +15,7 @@ html, body {
   align-items: center;
 }
 
+/* App Container */
 .app-container {
   background: #fff;
   border-radius: 8px;
@@ -39,6 +41,7 @@ html, body {
   color: #333;
 }
 
+/* Form Layout */
 .form-container {
   display: flex;
   flex-direction: column;
@@ -50,7 +53,60 @@ html, body {
   margin-bottom: 5px;
 }
 
-.input-text, .input-file, .input-textarea {
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  border: 0;
+}
+
+/* Query Bar (Textarea + Icon Button) */
+.query-bar {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border-radius: 30px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  padding: 0 10px;
+  border: 1px solid #ccc;
+}
+
+.query-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 1em;
+  padding: 10px;
+  resize: none;
+  background: transparent;
+  /* For consistent height with icon button */
+  min-height: 40px;
+}
+
+.query-input::placeholder {
+  color: #aaa;
+}
+
+.query-submit {
+  background: transparent;
+  border: none;
+  color: #007acc;
+  font-size: 1.2em;
+  cursor: pointer;
+  padding: 0 10px;
+  transition: color 0.3s;
+}
+
+.query-submit:hover {
+  color: #005fa3;
+}
+
+/* Other Inputs */
+.input-text, .input-file {
   width: 100%;
   padding: 10px;
   font-size: 1em;
@@ -59,25 +115,36 @@ html, body {
   box-sizing: border-box;
 }
 
-.input-textarea {
-  resize: vertical;
+/* File Upload */
+.file-upload-container {
+  display: inline-block;
+  position: relative;
 }
 
-.submit-button {
-  background: #007acc;
-  color: #fff;
-  border: none;
-  padding: 12px;
-  font-size: 1em;
+.upload-label {
+  display: inline-block;
+  padding: 10px 16px;
+  background: #fff;
+  color: #007acc;
+  border: 1px solid #ccc;
   border-radius: 4px;
   cursor: pointer;
-  transition: background .3s;
+  font-size: 1em;
+  text-align: center;
+  transition: background 0.3s, color 0.3s, border-color 0.3s;
 }
 
-.submit-button:hover {
-  background: #005fa3;
+.upload-label:hover {
+  background: #007acc;
+  color: #fff;
+  border-color: #007acc;
 }
 
+.input-file {
+  display: none; /* Hide the actual file input */
+}
+
+/* Error Message */
 .error-msg {
   margin-top: 20px;
   color: red;
@@ -85,7 +152,8 @@ html, body {
   text-align: center;
 }
 
-.final-payload-container, .openai-response-container {
+/* OpenAI Response */
+.openai-response-container {
   margin-top: 30px;
 }
 
@@ -104,7 +172,7 @@ html, body {
   font-family: Consolas, monospace;
 }
 
-/* Loading / "Thinking" spinner and text */
+/* Loading Spinner */
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -127,5 +195,7 @@ html, body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>RepoGPT</title>
   <link rel="stylesheet" href="./styles.css" />
+
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+  />
 </head>
 <body>
 
@@ -35,7 +40,6 @@ function App() {
   const [userInput, setUserInput] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [files, setFiles] = useState([]);
-  const [githubToken, setGithubToken] = useState("");
   const [githubFiles, setGithubFiles] = useState([]);
   const [response, setResponse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -43,7 +47,8 @@ function App() {
 
   const { getCachedFiles, setCachedFiles } = useFileCache();
 
-  const OPENAI_API_KEY = "YOUR_OPENAI_KEY_HERE";
+  const GITHUB_TOKEN = "YOUR_TOKEN_HERE";
+  const OPENAI_API_KEY = "YOUR_TOKEN_HERE";
   const acceptedExtensions = [".ts", ".js", ".jsx", ".py", ".tsx"];
 
   const handleFileChange = (e) => {
@@ -87,14 +92,14 @@ function App() {
 
   const fetchWithAuth = useCallback(async (url) => {
     const res = await fetch(url, {
-      headers: githubToken ? {
-        Authorization: `token ${githubToken}`,
+      headers: GITHUB_TOKEN ? {
+        Authorization: `token ${GITHUB_TOKEN}`,
         Accept: 'application/vnd.github.v3.raw'
       } : {}
     });
     if (!res.ok) throw new Error(`Failed to fetch: ${url} (${res.statusText})`);
     return res;
-  }, [githubToken]);
+  }, [GITHUB_TOKEN]);
 
   const fetchRepoDefaultBranch = useCallback(async (owner, repo) => {
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
@@ -225,7 +230,7 @@ function App() {
 
       // Final GPT call
       const finalData = await callOpenAI("gpt-4o", [
-        {role: "system", content: "You are RepoGPT. Given a user prompt and included repository code, provide helpful output."},
+        {role: "system", content: "You are RepoGPT. Given a user prompt and included repository code, provide helpful output. Be succinct."},
         {role: "user", content: fullPayload}
       ]);
 
@@ -240,66 +245,78 @@ function App() {
   };
 
   return (
-    <div className="app-container">
-      <h1 className="app-title">RepoGPT</h1>
-      <p className="app-subtitle">
-        Ask questions about a whole repo or large set of files. Upload as much as you want,
-        RepoGPT will read only the relevant files.
-      </p>
-      <form onSubmit={handleSubmit} className="form-container">
-        <label className="form-label">Your Query:</label>
-        <textarea
-          value={userInput}
-          onChange={(e) => setUserInput(e.target.value)}
-          rows={5}
-          className="input-textarea"
-        />
-        <label className="form-label">Upload Context from Github:</label>
-        <input
-          type="text"
-          value={repoUrl}
-          onChange={(e) => setRepoUrl(e.target.value)}
-          className="input-text"
-          placeholder="https://github.com/owner/repo"
-        />
-        <label className="form-label">
-          If the repo is private, enter a Github personal access token:
-        </label>
-        <input
-          type="text"
-          value={githubToken}
-          onChange={(e) => setGithubToken(e.target.value)}
-          className="input-text"
-          placeholder="ghp_zHyv02f3...."
-        />
-        <label className="form-label">Upload Context From Files:</label>
-        <input
-          type="file"
-          multiple
-          onChange={handleFileChange}
-          className="input-file"
-        />
-        <button type="submit" className="submit-button" disabled={isLoading}>
-          Submit
-        </button>
-      </form>
 
-      {errorMsg && <div className="error-msg">{errorMsg}</div>}
+<div className="app-container">
+  <h1 className="app-title">RepoGPT</h1>
+  <p className="app-subtitle">
+    Ask questions about a whole repo or large set of files. Upload as much as you want,
+    RepoGPT will read only the relevant files.
+  </p>
 
-      {isLoading && (
-        <div className="loading-container">
-          <div className="spinner"></div>
-          <span>Thinking...</span>
-        </div>
-      )}
-
-      {response && (
-        <div className="openai-response-container">
-          <h2 className="section-title">OpenAI Response:</h2>
-          <pre className="code-block">{response}</pre>
-        </div>
-      )}
+  <form onSubmit={handleSubmit} className="form-container">
+    {/* Query Input */}
+    <label className="visually-hidden" htmlFor="query-input">Your Query:</label>
+    <div className="query-bar">
+      <textarea
+        id="query-input"
+        className="query-input"
+        value={userInput}
+        onChange={(e) => setUserInput(e.target.value)}
+        rows={2}
+        placeholder="Ask your question here..."
+      />
+      <button
+        type="submit"
+        className="query-submit"
+        disabled={isLoading}
+        aria-label="Submit query"
+      >
+        <i className="fas fa-paper-plane"></i>
+      </button>
     </div>
+
+    {/* GitHub Repo Input */}
+    <label className="form-label" htmlFor="repo-url">Upload Context from Github:</label>
+    <input
+      id="repo-url"
+      type="text"
+      value={repoUrl}
+      onChange={(e) => setRepoUrl(e.target.value)}
+      className="input-text"
+      placeholder="https://github.com/owner/repo"
+    />
+
+    {/* File Upload */}
+    <label className="form-label" htmlFor="file-upload">Upload Context From Files:</label>
+    <div className="file-upload-container">
+      <label htmlFor="file-upload" className="upload-label">Choose Files</label>
+      <input
+        id="file-upload"
+        type="file"
+        multiple
+        onChange={handleFileChange}
+        className="input-file"
+      />
+    </div>
+
+  </form>
+
+  {errorMsg && <div className="error-msg">{errorMsg}</div>}
+
+  {isLoading && (
+    <div className="loading-container">
+      <div className="spinner"></div>
+      <span>Thinking...</span>
+    </div>
+  )}
+
+  {response && (
+    <div className="openai-response-container">
+      <h2 className="section-title">OpenAI Response:</h2>
+      <pre className="code-block">{response}</pre>
+    </div>
+  )}
+</div>
   );
 }
 
